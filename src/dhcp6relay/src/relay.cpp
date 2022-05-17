@@ -209,24 +209,9 @@ const struct dhcpv6_option *parse_dhcpv6_opt(const uint8_t *buffer, const uint8_
     return (const struct dhcpv6_option *)buffer;
 }
 
-/**
- * @code                            void send_udp(int sock, uint8_t *buffer, struct sockaddr_in6 target, uint32_t n, relay_config *config, uint8_t msg_type);
- *
- * @brief                           send udp packet
- *
- * @param *buffer                   message buffer
- * @param sockaddr_in6 target       target socket
- * @param n                         length of message
- * @param relay_config *config      pointer to relay_config
- * @param uint8_t msg_type          message type of dhcpv6 option of relayed message
- * 
- * @return dhcpv6_option   end of dhcpv6 message option
- */
-void send_udp(int sock, uint8_t *buffer, struct sockaddr_in6 target, uint32_t n, relay_config *config, uint8_t msg_type) {
+void process_sent_msg(relay_config *config, uint8_t msg_type) {
     std::string counterVlan = counter_table;
-    if(sendto(sock, buffer, n, 0, (const struct sockaddr *)&target, sizeof(target)) == -1)
-        syslog(LOG_ERR, "sendto: Failed to send to target address\n");
-    else if (counterMap.find(msg_type) != counterMap.end()) {
+    if (counterMap.find(msg_type) != counterMap.end()) {
         counters[msg_type]++;
         update_counter(config->db, counterVlan.append(config->interface), msg_type);
     } else {
@@ -464,7 +449,9 @@ void relay_client(int sock, const uint8_t *msg, int32_t len, const ip6_hdr *ip_h
     current_buffer_position += dhcp_message_length + sizeof(dhcpv6_option);
 
     for(auto server: config->servers_sock) {
-        send_udp(sock, buffer, server, current_buffer_position - buffer, config, new_message.msg_type);
+        if(send_udp(sock, buffer, server, current_buffer_position - buffer)) {
+            process_sent_msg(config, new_message.msg_type);
+        }
     }
 }
 
@@ -504,7 +491,9 @@ void relay_relay_forw(int sock, const uint8_t *msg, int32_t len, const ip6_hdr *
     current_buffer_position += dhcp_message_length + sizeof(dhcpv6_option);
 
     for(auto server: config->servers_sock) {
-        send_udp(sock, buffer, server, current_buffer_position - buffer, config, new_message.msg_type);
+        if(send_udp(sock, buffer, server, current_buffer_position - buffer)) {
+            process_sent_msg(config, new_message.msg_type);
+        }
     }
 }
 
@@ -556,7 +545,9 @@ void relay_relay_forw(int sock, const uint8_t *msg, int32_t len, const ip6_hdr *
     target_addr.sin6_port = htons(CLIENT_PORT);
     target_addr.sin6_scope_id = if_nametoindex(config->interface.c_str());
 
-    send_udp(sock, buffer, target_addr, current_buffer_position - buffer, config, type);
+    if(send_udp(sock, buffer, target_addr, current_buffer_position - buffer)) {
+        process_sent_msg(config, type);
+    }
 } 
 
 
